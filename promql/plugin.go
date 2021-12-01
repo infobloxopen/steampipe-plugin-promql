@@ -2,11 +2,16 @@ package promql
 
 import (
 	"context"
-	"fmt"
+	"io/ioutil"
+	"os"
+	"time"
 
-	"github.com/turbot/steampipe-plugin-sdk/grpc/proto"
+	papi "github.com/prometheus/client_golang/api"
+	v1api "github.com/prometheus/client_golang/api/prometheus/v1"
+	"github.com/prometheus/common/model"
 	"github.com/turbot/steampipe-plugin-sdk/plugin"
 	"github.com/turbot/steampipe-plugin-sdk/plugin/transform"
+	"gopkg.in/yaml.v2"
 )
 
 // Plugin returns a promql plugin for steampipe.
@@ -22,56 +27,54 @@ func Plugin(ctx context.Context) *plugin.Plugin {
 	return p
 }
 
-func tablePromqlMetric() *plugin.Table {
-	return &plugin.Table{
-		Name:        "promql_metric",
-		Description: `Metric executes promql queries defined in the alias table. The queries are sumarized so no more than about 1000 data points come back for each query. For example, if you query for 30 days and the underlying data is sampled at 15 second intervals, the bucket size will be calculated so that about 1000 buckets span 30 days.`,
-		List: &plugin.ListConfig{
-			Hydrate: listMetric,
-		},
-		Get: &plugin.GetConfig{
-			KeyColumns: plugin.NewEqualsKeyColumnSlice([]string{"name", "labels", "timestamp"}, plugin.Required),
-			Hydrate:    getMetric,
-		},
-		Columns: []*plugin.Column{
-			{Name: "name", Type: proto.ColumnType_STRING, Description: "The metric name used to trigger the aliased promql query."},
-			{Name: "labels", Type: proto.ColumnType_JSON, Description: "The label matching to pass into the promql query."},
-			{Name: "timestamp", Type: proto.ColumnType_TIMESTAMP, Description: "The timestamp of the calculated metric value."},
-			{Name: "value", Type: proto.ColumnType_DOUBLE, Description: "The value of the metric."},
-		},
+type Sample struct {
+	Name      string
+	Timestamp time.Time
+	Value     float64
+}
+
+func getConfig() (*Config, error) {
+
+	bs, err := ioutil.ReadFile(os.Getenv("HOME") + "/.steampipe-promql/config.yaml")
+	if err != nil {
+		return nil, err
 	}
-}
-
-func listMetric(ctx context.Context, d *plugin.QueryData, h *plugin.HydrateData) (interface{}, error) {
-	return nil, fmt.Errorf("unimplemented")
-}
-
-func getMetric(ctx context.Context, d *plugin.QueryData, h *plugin.HydrateData) (interface{}, error) {
-	return nil, fmt.Errorf("unimplemented")
-}
-
-func tablePromqlAlias() *plugin.Table {
-	return &plugin.Table{
-		Name:        "promql_alias",
-		Description: "Alias objects are templates for promql requires that are projected as metric names.",
-		List: &plugin.ListConfig{
-			Hydrate: listAlias,
-		},
-		Get: &plugin.GetConfig{
-			KeyColumns: plugin.SingleColumn("name"),
-			Hydrate:    getAlias,
-		},
-		Columns: []*plugin.Column{
-			{Name: "name", Type: proto.ColumnType_STRING, Description: "The name of the query alias."},
-			{Name: "template", Type: proto.ColumnType_STRING, Description: "A golang text/template of a promql query."},
-		},
+	var cfg Config
+	if err := yaml.Unmarshal(bs, &cfg); err != nil {
+		return nil, err
 	}
+	return &cfg, nil
 }
 
-func listAlias(ctx context.Context, d *plugin.QueryData, h *plugin.HydrateData) (interface{}, error) {
-	return nil, fmt.Errorf("unimplemented")
+type PromClient interface {
+	QueryRange(context.Context, string, v1api.Range) (model.Value, v1api.Warnings, error)
 }
 
-func getAlias(ctx context.Context, d *plugin.QueryData, h *plugin.HydrateData) (interface{}, error) {
-	return nil, fmt.Errorf("unimplemented")
+type Config struct {
+	Endpoint string            `json:"endpoint"`
+	Aliases  map[string]string `json:"aliases"`
+}
+
+func getAliasDef(name string) (string, bool) {
+	cfg, err := getConfig()
+	if err != nil {
+		return "", false
+	}
+	a, found := cfg.Aliases[name]
+	return a, found
+}
+
+func getPromClient(ctx context.Context) (PromClient, error) {
+
+	cfg, err := getConfig()
+	if err != nil {
+		return nil, err
+	}
+
+	aclient, err := papi.NewClient(papi.Config{Address: cfg.Endpoint})
+	if err != nil {
+		return nil, err
+	}
+
+	return v1api.NewAPI(aclient), nil
 }

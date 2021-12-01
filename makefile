@@ -7,7 +7,12 @@ clean:
 
 install: promql.plugin
 	mkdir -p "$(HOME)/.steampipe/plugins/hub.steampipe.io/plugins/infoblox/promql@latest"
-	cp .plugin "$(HOME)/.steampipe/plugins/hub.steampipe.io/plugins/infoblox/promql@latest/promql.plugin"
+	cp promql.plugin "$(HOME)/.steampipe/plugins/hub.steampipe.io/plugins/infoblox/promql@latest/promql.plugin"
 	mkdir -p $(HOME)/.steampipe/config/
 	cp promql.spc $(HOME)/.steampipe/config/promql.spc
+
+run:
+	make
+	make install
+	~/go/bin/steampipe service restart
 
